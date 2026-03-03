@@ -1,0 +1,74 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Tesseract OCR
+        run: |
+          choco install tesseract --params "/Languages:chi_sim" -y
+        shell: cmd
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller build.spec --noconfirm
+
+      - name: Copy Tesseract to distribution
+        run: |
+          $tessPath = "C:\Program Files\Tesseract-OCR"
+          $destPath = "tesseract"
+          
+          New-Item -ItemType Directory -Force -Path $destPath
+          Copy-Item -Path "$tessPath\tesseract.exe" -Destination $destPath -Force
+          
+          # Copy required DLLs
+          Get-ChildItem -Path $tessPath -Filter "*.dll" | Copy-Item -Destination $destPath -Force
+          
+          # Copy tessdata (language models)
+          $tessdataSrc = Join-Path $tessPath "tessdata"
+          $tessdataDest = Join-Path $destPath "tessdata"
+          New-Item -ItemType Directory -Force -Path $tessdataDest
+          Copy-Item -Path "$tessdataSrc\eng.traineddata" -Destination $tessdataDest -Force
+          Copy-Item -Path "$tessdataSrc\chi_sim.traineddata" -Destination $tessdataDest -Force
+          Copy-Item -Path "$tessdataSrc\osd.traineddata" -Destination $tessdataDest -Force -ErrorAction SilentlyContinue
+        shell: pwsh
+
+      - name: Build Installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+        shell: pwsh
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer_output/*.exe
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer_output/*.exe
+          generate_release_notes: true

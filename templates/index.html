@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>热门询价标的 · 图片生成工具</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</head>
+<body>
+
+<!-- ============ Tool Panel: Upload + Edit ============ -->
+<div class="tool-panel">
+
+  <h2>数据上传</h2>
+  <div class="upload-section">
+    <div class="upload-box" id="excel-box">
+      <div class="icon">📊</div>
+      <div class="label">期权报价表 Excel（必选）</div>
+      <div class="sublabel">点击选择或拖拽文件到此处</div>
+      <div class="filename" id="excel-name"></div>
+      <input type="file" id="excel-input" accept=".xlsx,.xls" />
+    </div>
+    <div class="upload-box" id="screenshot-box">
+      <div class="icon">🖼</div>
+      <div class="label">热门询价截图（可选，支持 OCR 识别）</div>
+      <div class="sublabel">点击选择或拖拽文件到此处</div>
+      <div class="filename" id="screenshot-name"></div>
+      <input type="file" id="screenshot-input" accept="image/*" />
+    </div>
+  </div>
+
+  <h2>手动输入标的</h2>
+  <div class="manual-input-section">
+    <div class="manual-input-row">
+      <textarea id="manual-names" class="manual-textarea" rows="3"
+        placeholder="输入标的名称，多个标的用逗号、空格或换行分隔，例如：贵州茅台, 宁德时代, 比亚迪"></textarea>
+    </div>
+    <div class="manual-hint">支持同时输入多个标的名称，解析时将与 OCR 结果合并；也可仅手动输入、不上传截图</div>
+  </div>
+
+  <div class="action-bar">
+    <button id="parse-btn" class="btn btn-primary">开始解析</button>
+    <label class="date-label">
+      日期：<input id="date-input" type="date" value="{{ today }}" class="date-picker" />
+    </label>
+  </div>
+
+  <!-- Edit Section (替换入口) -->
+  <div id="edit-section" class="edit-section hidden">
+    <h2>标的编辑 · 替换入口</h2>
+    <div class="action-bar">
+      <button class="btn btn-outline btn-sm" onclick="addRow()">+ 添加标的</button>
+      <button class="btn btn-outline btn-sm" onclick="batchAppend()">+ 批量追加</button>
+      <button class="btn btn-outline btn-sm" onclick="clearAll()">清空全部</button>
+      <span style="color:#666; font-size:13px; margin-left:auto;">期权费单位: %（如 4.60 表示 4.60%）· 修改后实时预览</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="edit-table">
+        <thead>
+          <tr>
+            <th style="width:32px"></th>
+            <th style="width:36px">#</th>
+            <th style="min-width:120px">标的名称</th>
+            <th style="min-width:120px">证券代码</th>
+            <th style="min-width:100px">1M 期权费(%)</th>
+            <th style="min-width:100px">2M 期权费(%)</th>
+            <th style="width:70px">状态</th>
+            <th style="width:140px">操作</th>
+          </tr>
+        </thead>
+        <tbody id="edit-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Preview & Export ============ -->
+<div id="preview-wrapper" class="hidden">
+  <div class="preview-controls">
+    <button class="btn btn-primary" onclick="exportImage()">生成图片并下载</button>
+    <button class="btn btn-outline" onclick="renderPreview()">刷新预览</button>
+  </div>
+
+  <div id="capture-area">
+    <div class="banner">
+      <!-- Left candlestick decoration -->
+      <svg class="banner-candles-left" width="80" height="50" viewBox="0 0 80 50">
+        <rect x="6" y="18" width="4" height="16" fill="#fff" rx="1"/>
+        <line x1="8" y1="10" x2="8" y2="42" stroke="#fff" stroke-width="1.2"/>
+        <rect x="18" y="8" width="4" height="20" fill="#fff" rx="1"/>
+        <line x1="20" y1="2" x2="20" y2="36" stroke="#fff" stroke-width="1.2"/>
+        <rect x="30" y="14" width="4" height="12" fill="#fff" rx="1"/>
+        <line x1="32" y1="6" x2="32" y2="34" stroke="#fff" stroke-width="1.2"/>
+        <rect x="42" y="6" width="4" height="22" fill="#fff" rx="1"/>
+        <line x1="44" y1="0" x2="44" y2="38" stroke="#fff" stroke-width="1.2"/>
+        <rect x="54" y="12" width="4" height="14" fill="#fff" rx="1"/>
+        <line x1="56" y1="4" x2="56" y2="34" stroke="#fff" stroke-width="1.2"/>
+        <rect x="66" y="4" width="4" height="24" fill="#fff" rx="1"/>
+        <line x1="68" y1="0" x2="68" y2="40" stroke="#fff" stroke-width="1.2"/>
+      </svg>
+      <div class="banner-left-deco"></div>
+      <div style="position:relative; z-index:1;">
+        <div class="banner-title">周度热门询价标的</div>
+        <div class="banner-date" id="banner-date">{{ today }}</div>
+        <div class="banner-sub">场外衍生品 · 香草期权报价</div>
+      </div>
+      <div class="banner-right-deco"></div>
+      <!-- Right candlestick decoration -->
+      <svg class="banner-candles-right" width="80" height="50" viewBox="0 0 80 50">
+        <rect x="6" y="10" width="4" height="18" fill="#fff" rx="1"/>
+        <line x1="8" y1="2" x2="8" y2="38" stroke="#fff" stroke-width="1.2"/>
+        <rect x="18" y="16" width="4" height="14" fill="#fff" rx="1"/>
+        <line x1="20" y1="8" x2="20" y2="40" stroke="#fff" stroke-width="1.2"/>
+        <rect x="30" y="6" width="4" height="22" fill="#fff" rx="1"/>
+        <line x1="32" y1="0" x2="32" y2="38" stroke="#fff" stroke-width="1.2"/>
+        <rect x="42" y="12" width="4" height="16" fill="#fff" rx="1"/>
+        <line x1="44" y1="4" x2="44" y2="36" stroke="#fff" stroke-width="1.2"/>
+        <rect x="54" y="8" width="4" height="20" fill="#fff" rx="1"/>
+        <line x1="56" y1="0" x2="56" y2="36" stroke="#fff" stroke-width="1.2"/>
+        <rect x="66" y="14" width="4" height="12" fill="#fff" rx="1"/>
+        <line x1="68" y1="6" x2="68" y2="34" stroke="#fff" stroke-width="1.2"/>
+      </svg>
+    </div>
+    <div class="cards-grid" id="cards-grid"></div>
+    <div class="capture-footer" id="capture-footer"></div>
+  </div>
+</div>
+
+<script src="/static/main.js"></script>
+</body>
+</html>
