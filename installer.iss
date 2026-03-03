@@ -1,5 +1,5 @@
 #define MyAppName "HotInquiryTool"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppExeName "热门询价图片工具.exe"
 
 [Setup]
