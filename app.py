@@ -40,17 +40,16 @@ try:
     import pytesseract
 
     if getattr(sys, 'frozen', False):
-        _tess_exe = os.path.join(
-            os.path.dirname(sys.executable), 'tesseract', 'tesseract.exe'
-        )
+        _tess_dir = os.path.join(os.path.dirname(sys.executable), 'tesseract')
+        _tess_exe = os.path.join(_tess_dir, 'tesseract.exe')
         if os.path.isfile(_tess_exe):
             pytesseract.pytesseract.tesseract_cmd = _tess_exe
-            os.environ['TESSDATA_PREFIX'] = os.path.join(
-                os.path.dirname(sys.executable), 'tesseract', 'tessdata'
-            )
+            os.environ['TESSDATA_PREFIX'] = _tess_dir
     HAS_TESSERACT = True
 except ImportError:
     HAS_TESSERACT = False
+
+TESSERACT_ERROR = ''
 
 from PIL import ImageChops
 
@@ -123,22 +122,42 @@ def _parse_numbered_rows(text: str) -> dict[int, list[str]]:
 
 def ocr_extract_stock_names(image_path: str) -> list[str]:
     """Multi-pass OCR: run 4 preprocessing variants, fuse by row number."""
+    global TESSERACT_ERROR
     if not HAS_TESSERACT:
+        TESSERACT_ERROR = 'pytesseract 未安装'
         return []
 
-    img = Image.open(image_path)
-    variants = _preprocess_variants(img)
+    try:
+        img = Image.open(image_path)
+        variants = _preprocess_variants(img)
+    except Exception as e:
+        TESSERACT_ERROR = f'图片预处理失败: {e}'
+        return []
 
     all_rows: dict[int, list[str]] = {}
 
-    for variant in variants:
-        text = pytesseract.image_to_string(
-            variant, lang='chi_sim+eng', config='--psm 6'
-        )
-        parsed = _parse_numbered_rows(text)
-        for num, names in parsed.items():
-            all_rows.setdefault(num, []).extend(names)
+    tessdata_dir = None
+    if getattr(sys, 'frozen', False):
+        candidate = os.path.join(os.path.dirname(sys.executable), 'tesseract', 'tessdata')
+        if os.path.isdir(candidate):
+            tessdata_dir = candidate
 
+    try:
+        for variant in variants:
+            ocr_config = '--psm 6'
+            if tessdata_dir:
+                ocr_config += f' --tessdata-dir "{tessdata_dir}"'
+            text = pytesseract.image_to_string(
+                variant, lang='chi_sim+eng', config=ocr_config
+            )
+            parsed = _parse_numbered_rows(text)
+            for num, names in parsed.items():
+                all_rows.setdefault(num, []).extend(names)
+    except Exception as e:
+        TESSERACT_ERROR = f'Tesseract OCR 执行失败: {e}'
+        return []
+
+    TESSERACT_ERROR = ''
     final_names = []
     seen = set()
     for num in sorted(all_rows.keys()):
@@ -413,6 +432,7 @@ def upload():
         'manual_names': manual_names,
         'all_stocks': all_stocks,
         'has_tesseract': HAS_TESSERACT,
+        'tesseract_error': TESSERACT_ERROR,
     })
 
 

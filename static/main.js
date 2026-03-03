@@ -92,7 +92,9 @@ parseBtn.addEventListener('click', async () => {
     stockData = json.stocks || [];
     excelUploaded = true;
 
-    if (stockData.length === 0 && !json.has_tesseract && !manualText) {
+    if (json.tesseract_error) {
+      showToast('OCR 错误: ' + json.tesseract_error);
+    } else if (stockData.length === 0 && !json.has_tesseract && !manualText) {
       showToast('OCR 不可用（未安装 tesseract），请手动输入标的名称');
     } else if (stockData.length === 0) {
       showToast('未匹配到标的，请检查名称或手动添加');
