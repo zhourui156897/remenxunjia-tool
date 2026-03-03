@@ -27,8 +27,17 @@ jobs:
 
       - name: Install Tesseract OCR
         run: |
-          choco install tesseract --params "/Languages:chi_sim" -y
+          choco install tesseract -y
         shell: cmd
+
+      - name: Download Tesseract Chinese language data
+        run: |
+          $tessdataDir = "C:\Program Files\Tesseract-OCR\tessdata"
+          $url = "https://github.com/tesseract-ocr/tessdata/raw/main/chi_sim.traineddata"
+          Invoke-WebRequest -Uri $url -OutFile (Join-Path $tessdataDir "chi_sim.traineddata")
+          Write-Host "Downloaded chi_sim.traineddata"
+          Get-ChildItem $tessdataDir -Filter "*.traineddata" | ForEach-Object { Write-Host $_.Name }
+        shell: pwsh
 
       - name: Build with PyInstaller
         run: |
@@ -38,20 +47,25 @@ jobs:
         run: |
           $tessPath = "C:\Program Files\Tesseract-OCR"
           $destPath = "tesseract"
-          
+
           New-Item -ItemType Directory -Force -Path $destPath
           Copy-Item -Path "$tessPath\tesseract.exe" -Destination $destPath -Force
-          
-          # Copy required DLLs
+
           Get-ChildItem -Path $tessPath -Filter "*.dll" | Copy-Item -Destination $destPath -Force
-          
-          # Copy tessdata (language models)
+
           $tessdataSrc = Join-Path $tessPath "tessdata"
           $tessdataDest = Join-Path $destPath "tessdata"
           New-Item -ItemType Directory -Force -Path $tessdataDest
-          Copy-Item -Path "$tessdataSrc\eng.traineddata" -Destination $tessdataDest -Force
-          Copy-Item -Path "$tessdataSrc\chi_sim.traineddata" -Destination $tessdataDest -Force
-          Copy-Item -Path "$tessdataSrc\osd.traineddata" -Destination $tessdataDest -Force -ErrorAction SilentlyContinue
+
+          foreach ($f in @("eng.traineddata", "chi_sim.traineddata", "osd.traineddata")) {
+            $src = Join-Path $tessdataSrc $f
+            if (Test-Path $src) {
+              Copy-Item -Path $src -Destination $tessdataDest -Force
+              Write-Host "Copied $f"
+            } else {
+              Write-Host "Skipped $f (not found)"
+            }
+          }
         shell: pwsh
 
       - name: Build Installer with Inno Setup
