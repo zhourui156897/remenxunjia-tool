@@ -70,6 +70,12 @@ jobs:
 
       - name: Build Installer with Inno Setup
         run: |
+          $content = Get-Content -Path "installer.iss" -Raw
+          [System.IO.File]::WriteAllText(
+            (Join-Path $pwd "installer.iss"),
+            $content,
+            [System.Text.UTF8Encoding]::new($true)
+          )
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
         shell: pwsh
 
