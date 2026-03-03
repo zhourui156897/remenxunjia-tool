@@ -155,8 +155,12 @@ parseBtn.addEventListener('click', async () => {
       showToast('OCR 错误: ' + json.tesseract_error);
     } else if (stockData.length === 0 && !json.has_tesseract && !manualText) {
       showToast('OCR 不可用（未安装 tesseract），请手动输入标的名称');
+    } else if (stockData.length === 0 && json.excel_count === 0) {
+      showToast('Excel 解析为空，请检查报价表是否包含"香草看涨"相关工作表');
+    } else if (stockData.length === 0 && json.ocr_text_len === 0) {
+      showToast('OCR 未识别到任何文字，请检查截图是否清晰');
     } else if (stockData.length === 0) {
-      showToast('未匹配到标的，请检查名称或手动添加');
+      showToast('OCR 识别了文字但未匹配到标的（Excel 共 ' + (json.excel_count || 0) + ' 个标的），请手动输入名称');
     } else {
       const matched = stockData.filter(s => s.matched).length;
       const ocrCount = (json.ocr_names || []).length;

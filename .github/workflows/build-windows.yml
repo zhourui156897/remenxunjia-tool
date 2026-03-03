@@ -52,23 +52,27 @@ jobs:
           $destPath = "tesseract"
 
           New-Item -ItemType Directory -Force -Path $destPath
-          Copy-Item -Path "$tessPath\tesseract.exe" -Destination $destPath -Force
 
-          Get-ChildItem -Path $tessPath -Filter "*.dll" | Copy-Item -Destination $destPath -Force
+          # Copy ALL files recursively (exe, dlls, subdirectory deps)
+          Copy-Item -Path "$tessPath\*" -Destination $destPath -Recurse -Force
 
-          $tessdataSrc = Join-Path $tessPath "tessdata"
+          # Ensure chi_sim.traineddata is present
           $tessdataDest = Join-Path $destPath "tessdata"
-          New-Item -ItemType Directory -Force -Path $tessdataDest
-
-          foreach ($f in @("eng.traineddata", "chi_sim.traineddata", "osd.traineddata")) {
-            $src = Join-Path $tessdataSrc $f
-            if (Test-Path $src) {
-              Copy-Item -Path $src -Destination $tessdataDest -Force
-              Write-Host "Copied $f"
-            } else {
-              Write-Host "Skipped $f (not found)"
-            }
+          $chiSim = Join-Path $tessdataDest "chi_sim.traineddata"
+          if (-not (Test-Path $chiSim)) {
+            Write-Host "chi_sim.traineddata missing, downloading..."
+            $url = "https://github.com/tesseract-ocr/tessdata/raw/main/chi_sim.traineddata"
+            Invoke-WebRequest -Uri $url -OutFile $chiSim
           }
+
+          Write-Host "=== Tesseract bundle contents ==="
+          Get-ChildItem -Path $destPath -Recurse | ForEach-Object {
+            Write-Host $_.FullName.Replace($pwd.Path + "\", "")
+          }
+
+          # Verify tesseract works
+          $env:PATH = "$destPath;$env:PATH"
+          & "$destPath\tesseract.exe" --version
         shell: pwsh
 
       - name: Build Installer with Inno Setup

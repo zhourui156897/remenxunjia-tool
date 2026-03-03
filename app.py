@@ -46,27 +46,43 @@ try:
             pytesseract.pytesseract.tesseract_cmd = _tess_exe
             _tessdata = os.path.join(_tess_dir, 'tessdata')
             os.environ['TESSDATA_PREFIX'] = _tessdata + os.sep
+            os.environ['PATH'] = _tess_dir + os.pathsep + os.environ.get('PATH', '')
+
     HAS_TESSERACT = True
+    try:
+        import subprocess
+        _test_cmd = pytesseract.pytesseract.tesseract_cmd or 'tesseract'
+        subprocess.run(
+            [_test_cmd, '--version'],
+            capture_output=True, timeout=10,
+        )
+    except Exception:
+        HAS_TESSERACT = False
+
 except ImportError:
     HAS_TESSERACT = False
 
 TESSERACT_ERROR = ''
+OCR_RAW_TEXT = ''
 
 from PIL import ImageChops
 
 NOISE_KEYWORDS = {
     '热门询价', '放量跟踪', '序号', '标的', '现价', '涨跌幅',
     '前一日总市值', '前一日成交额', '操作', '去询价', '去跟踪',
+    '去多价', '去锋价', '去锋踪', '查看更多', '沪深', '涨幅',
+    '总市值', '成交额', '涨跌', '跟踪',
     '亿', 'SH', 'SZ', 'CNTGROUP',
 }
 
 
 def _preprocess_variants(img: Image.Image) -> list[Image.Image]:
-    """Generate multiple preprocessed images for multi-pass OCR."""
-    w, h = img.size
-    left_half = img.crop((0, 0, w // 2, h))
+    """Generate multiple preprocessed images for multi-pass OCR.
+
+    Processes the FULL image (layout is unpredictable).
+    """
     scale = 3
-    scaled = left_half.resize((left_half.width * scale, left_half.height * scale), Image.LANCZOS)
+    scaled = img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
 
     rgb = scaled.convert('RGB')
     r, g, b = rgb.split()
@@ -74,21 +90,17 @@ def _preprocess_variants(img: Image.Image) -> list[Image.Image]:
 
     variants = []
 
-    # V1: max-channel, threshold 90 (good for colored text like 中兵红箭)
     inv1 = ImageOps.invert(bright)
     enh1 = ImageEnhance.Contrast(inv1).enhance(2.0)
     variants.append(enh1.point(lambda x: 255 if x > 90 else 0))
 
-    # V2: max-channel, lower threshold 70 (catches faint text like 海格通信)
     variants.append(enh1.point(lambda x: 255 if x > 70 else 0))
 
-    # V3: grayscale enhanced (good for white text like 中际旭创, 深信服)
     gray = scaled.convert('L')
     inv3 = ImageOps.invert(gray)
     enh3 = ImageEnhance.Contrast(inv3).enhance(2.5)
     variants.append(enh3.point(lambda x: 255 if x > 100 else 0))
 
-    # V4: red channel (good for red-highlighted text)
     inv4 = ImageOps.invert(r)
     enh4 = ImageEnhance.Contrast(inv4).enhance(3.0)
     variants.append(enh4.point(lambda x: 255 if x > 110 else 0))
@@ -108,6 +120,8 @@ def _parse_numbered_rows(text: str) -> dict[int, list[str]]:
             continue
         m = re.match(r'^[^0-9]*(\d{1,2})\s+(.+?)(?:\s+\d)', line)
         if not m:
+            m = re.match(r'^[^0-9]*(\d{1,2})\s*(.+)', line)
+        if not m:
             continue
         row_num = int(m.group(1))
         if row_num < 1 or row_num > 50:
@@ -121,9 +135,31 @@ def _parse_numbered_rows(text: str) -> dict[int, list[str]]:
     return rows
 
 
+def _parse_names_lenient(text: str) -> list[str]:
+    """Extract likely stock names from OCR text without requiring row numbers.
+
+    Fallback when numbered-row parsing produces nothing.
+    """
+    names = []
+    seen = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cleaned = re.sub(r'[\d"\'"=|*«»\[\]()（）.,%+\-/\\:：;；]', ' ', line)
+        chinese_parts = re.findall(r'[\u4e00-\u9fff]{2,6}', cleaned)
+        for part in chinese_parts:
+            if 2 <= len(part) <= 6 and part not in seen:
+                if not any(kw in part for kw in NOISE_KEYWORDS):
+                    names.append(part)
+                    seen.add(part)
+    return names
+
+
 def ocr_extract_stock_names(image_path: str) -> list[str]:
     """Multi-pass OCR: run 4 preprocessing variants, fuse by row number."""
-    global TESSERACT_ERROR
+    global TESSERACT_ERROR, OCR_RAW_TEXT
+    OCR_RAW_TEXT = ''
     if not HAS_TESSERACT:
         TESSERACT_ERROR = 'pytesseract 未安装'
         return []
@@ -136,6 +172,7 @@ def ocr_extract_stock_names(image_path: str) -> list[str]:
         return []
 
     all_rows: dict[int, list[str]] = {}
+    raw_texts: list[str] = []
 
     try:
         for variant in variants:
@@ -143,6 +180,7 @@ def ocr_extract_stock_names(image_path: str) -> list[str]:
             text = pytesseract.image_to_string(
                 variant, lang='chi_sim+eng', config=ocr_config
             )
+            raw_texts.append(text)
             parsed = _parse_numbered_rows(text)
             for num, names in parsed.items():
                 all_rows.setdefault(num, []).extend(names)
@@ -150,6 +188,7 @@ def ocr_extract_stock_names(image_path: str) -> list[str]:
         TESSERACT_ERROR = f'Tesseract OCR 执行失败: {e}'
         return []
 
+    OCR_RAW_TEXT = '\n'.join(raw_texts)
     TESSERACT_ERROR = ''
     final_names = []
     seen = set()
@@ -162,7 +201,63 @@ def ocr_extract_stock_names(image_path: str) -> list[str]:
             seen.add(best)
             final_names.append(best)
 
+    if not final_names and OCR_RAW_TEXT:
+        final_names = _parse_names_lenient(OCR_RAW_TEXT)
+
     return final_names
+
+
+def _search_names_in_text(text: str, known_names: set[str]) -> list[str]:
+    """Search for known stock names as substrings in OCR text."""
+    if not text or not known_names:
+        return []
+    text_clean = re.sub(r'\s+', '', text)
+    found = []
+    seen = set()
+    for name in sorted(known_names, key=len, reverse=True):
+        if len(name) >= 2 and name in text_clean and name not in seen:
+            found.append(name)
+            seen.add(name)
+    return found
+
+
+def _fallback_ocr_full_image(image_path: str, known_names: set[str]) -> list[str]:
+    """Fallback: run OCR on the full image and search for known stock names."""
+    global OCR_RAW_TEXT
+    if not HAS_TESSERACT or not known_names:
+        return []
+    try:
+        img = Image.open(image_path)
+        scale = 2
+        scaled = img.resize(
+            (img.width * scale, img.height * scale), Image.LANCZOS
+        )
+
+        variants = []
+        gray = scaled.convert('L')
+        inv = ImageOps.invert(gray)
+        enh = ImageEnhance.Contrast(inv).enhance(2.5)
+        variants.append(enh.point(lambda x: 255 if x > 100 else 0))
+        variants.append(enh.point(lambda x: 255 if x > 70 else 0))
+
+        rgb = scaled.convert('RGB')
+        r, g, b = rgb.split()
+        bright = ImageChops.lighter(r, ImageChops.lighter(g, b))
+        inv_b = ImageOps.invert(bright)
+        enh_b = ImageEnhance.Contrast(inv_b).enhance(2.0)
+        variants.append(enh_b.point(lambda x: 255 if x > 90 else 0))
+
+        all_text = ''
+        for variant in variants:
+            text = pytesseract.image_to_string(
+                variant, lang='chi_sim+eng', config='--psm 6'
+            )
+            all_text += '\n' + text
+
+        OCR_RAW_TEXT += '\n' + all_text
+        return _search_names_in_text(all_text, known_names)
+    except Exception:
+        return []
 
 
 def _pick_best_candidate(candidates: list[str]) -> Optional[str]:
@@ -209,6 +304,18 @@ def parse_excel(file_path: str) -> dict:
         if candidate in wb.sheetnames:
             ws = wb[candidate]
             break
+
+    if ws is None:
+        for sn in wb.sheetnames:
+            if '香草' in sn and '看涨' in sn:
+                ws = wb[sn]
+                break
+
+    if ws is None:
+        for sn in wb.sheetnames:
+            if '看涨' in sn:
+                ws = wb[sn]
+                break
 
     if ws is None:
         wb.close()
@@ -394,10 +501,25 @@ def upload():
     excel_data = parse_excel(excel_path)
 
     ocr_names = []
+    ocr_method = ''
     if screenshot:
         img_path = os.path.join(UPLOAD_FOLDER, 'screenshot.png')
         screenshot.save(img_path)
         ocr_names = ocr_extract_stock_names(img_path)
+        if ocr_names:
+            ocr_method = 'primary'
+
+        if not ocr_names:
+            known_names = set(excel_data['by_name'].keys())
+            if OCR_RAW_TEXT and known_names:
+                ocr_names = _search_names_in_text(OCR_RAW_TEXT, known_names)
+                if ocr_names:
+                    ocr_method = 'fallback_text'
+
+            if not ocr_names and known_names:
+                ocr_names = _fallback_ocr_full_image(img_path, known_names)
+                if ocr_names:
+                    ocr_method = 'fallback_fullimg'
 
     manual_names = []
     if manual_names_raw.strip():
@@ -418,6 +540,9 @@ def upload():
         for e in excel_data['by_name'].values()
     ]
 
+    ocr_text_len = len(OCR_RAW_TEXT)
+    excel_count = len(excel_data['by_name'])
+
     return jsonify({
         'stocks': results,
         'date': excel_data['date'],
@@ -426,6 +551,9 @@ def upload():
         'all_stocks': all_stocks,
         'has_tesseract': HAS_TESSERACT,
         'tesseract_error': TESSERACT_ERROR,
+        'ocr_method': ocr_method,
+        'ocr_text_len': ocr_text_len,
+        'excel_count': excel_count,
     })
 
 
