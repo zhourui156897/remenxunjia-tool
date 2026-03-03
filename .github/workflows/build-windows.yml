@@ -68,13 +68,6 @@ jobs:
           }
         shell: pwsh
 
-      - name: Download Inno Setup Chinese language file
-        run: |
-          $issLangUrl = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
-          Invoke-WebRequest -Uri $issLangUrl -OutFile "ChineseSimplified.isl"
-          Write-Host "Downloaded ChineseSimplified.isl"
-        shell: pwsh
-
       - name: Build Installer with Inno Setup
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss

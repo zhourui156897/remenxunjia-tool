@@ -1,5 +1,4 @@
 ; Inno Setup Script - 热门询价图片工具 Windows Installer
-; This script is executed by GitHub Actions to produce the final .exe installer.
 
 #define MyAppName "热门询价图片工具"
 #define MyAppVersion "1.0.0"
@@ -14,24 +13,18 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=installer_output
-OutputBaseFilename=热门询价图片工具_安装包_v{#MyAppVersion}
+OutputBaseFilename=HotInquiryTool_Setup_v{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
-[Languages]
-Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
-
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checked
+Name: "desktopicon"; Description: "Create desktop shortcut"; Flags: checked
 
 [Files]
-; Main application (PyInstaller output)
 Source: "dist\热门询价图片工具\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Tesseract OCR engine
 Source: "tesseract\*"; DestDir: "{app}\tesseract"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
@@ -39,7 +32,7 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "立即运行 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\uploads"
