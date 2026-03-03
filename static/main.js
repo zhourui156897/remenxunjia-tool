@@ -13,6 +13,8 @@ const screenshotInput = $('#screenshot-input');
 const excelInput = $('#excel-input');
 const screenshotName = $('#screenshot-name');
 const excelName = $('#excel-name');
+const screenshotClear = $('#screenshot-clear');
+const excelClear = $('#excel-clear');
 const parseBtn = $('#parse-btn');
 const editBody = $('#edit-body');
 const editSection = $('#edit-section');
@@ -25,16 +27,40 @@ const dateInput = $('#date-input');
 const manualNames = $('#manual-names');
 
 // ---------------------------------------------------------------------------
-// File input display + drag & drop
+// File input display + drag & drop + clear
 // ---------------------------------------------------------------------------
+function updateFileUI(inputEl, nameEl, clearBtn, boxEl) {
+  const hasFile = inputEl.files && inputEl.files.length > 0;
+  nameEl.textContent = hasFile ? inputEl.files[0].name : '';
+  clearBtn.classList.toggle('hidden', !hasFile);
+  boxEl.classList.toggle('has-file', hasFile);
+}
+
 screenshotInput.addEventListener('change', () => {
-  screenshotName.textContent = screenshotInput.files[0]?.name || '';
+  updateFileUI(screenshotInput, screenshotName, screenshotClear, screenshotInput.closest('.upload-box'));
 });
 excelInput.addEventListener('change', () => {
-  excelName.textContent = excelInput.files[0]?.name || '';
+  updateFileUI(excelInput, excelName, excelClear, excelInput.closest('.upload-box'));
 });
 
-function setupDragDrop(boxId, inputEl, nameEl) {
+function clearFileInput(inputEl, nameEl, clearBtn, boxEl) {
+  inputEl.value = '';
+  updateFileUI(inputEl, nameEl, clearBtn, boxEl);
+}
+
+screenshotClear.addEventListener('click', (e) => {
+  e.stopPropagation();
+  e.preventDefault();
+  clearFileInput(screenshotInput, screenshotName, screenshotClear, screenshotInput.closest('.upload-box'));
+});
+
+excelClear.addEventListener('click', (e) => {
+  e.stopPropagation();
+  e.preventDefault();
+  clearFileInput(excelInput, excelName, excelClear, excelInput.closest('.upload-box'));
+});
+
+function setupDragDrop(boxId, inputEl, nameEl, clearBtn) {
   const box = document.getElementById(boxId);
   if (!box) return;
   ['dragenter', 'dragover'].forEach(evt => {
@@ -50,12 +76,45 @@ function setupDragDrop(boxId, inputEl, nameEl) {
       const dt = new DataTransfer();
       dt.items.add(file);
       inputEl.files = dt.files;
-      nameEl.textContent = file.name;
+      updateFileUI(inputEl, nameEl, clearBtn, box);
     }
   });
 }
-setupDragDrop('screenshot-box', screenshotInput, screenshotName);
-setupDragDrop('excel-box', excelInput, excelName);
+setupDragDrop('screenshot-box', screenshotInput, screenshotName, screenshotClear);
+setupDragDrop('excel-box', excelInput, excelName, excelClear);
+
+// ---------------------------------------------------------------------------
+// Session state persistence (survives page refresh)
+// ---------------------------------------------------------------------------
+function saveState() {
+  try {
+    sessionStorage.setItem('hotinquiry_state', JSON.stringify({
+      stockData,
+      reportDate,
+      excelUploaded,
+    }));
+  } catch (_) {}
+}
+
+function restoreState() {
+  try {
+    const raw = sessionStorage.getItem('hotinquiry_state');
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (s.stockData && s.stockData.length > 0) {
+      stockData = s.stockData;
+      reportDate = s.reportDate || dateInput.value;
+      excelUploaded = !!s.excelUploaded;
+      dateInput.value = reportDate;
+      renderEditTable();
+      renderPreview();
+      editSection.classList.remove('hidden');
+      previewWrapper.classList.remove('hidden');
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // Upload & Parse
@@ -112,6 +171,7 @@ parseBtn.addEventListener('click', async () => {
     renderPreview();
     editSection.classList.remove('hidden');
     previewWrapper.classList.remove('hidden');
+    saveState();
 
     setTimeout(() => {
       editSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -178,6 +238,7 @@ function renderEditTable() {
       }
       stockData[idx][field] = val;
       renderPreview();
+      saveState();
     });
   });
 }
@@ -231,6 +292,7 @@ function onDrop(e) {
 
   renderEditTable();
   renderPreview();
+  saveState();
 }
 
 function onDragEnd() {
@@ -246,12 +308,14 @@ function moveRow(fromIdx, direction) {
   [stockData[fromIdx], stockData[toIdx]] = [stockData[toIdx], stockData[fromIdx]];
   renderEditTable();
   renderPreview();
+  saveState();
 }
 
 function addRow() {
   stockData.push({ name: '', code: '', call_1m: null, call_2m: null, matched: false });
   renderEditTable();
   renderPreview();
+  saveState();
   const rows = editBody.querySelectorAll('tr');
   if (rows.length) rows[rows.length - 1].querySelector('input')?.focus();
 }
@@ -292,6 +356,7 @@ async function batchAppend() {
 
     renderEditTable();
     renderPreview();
+    saveState();
     const matched = newStocks.filter(s => s.matched).length;
     showToast(`追加 ${added} 个标的（${matched} 个已匹配，${newStocks.length - added} 个重复已跳过）`);
   } catch (e) {
@@ -303,6 +368,7 @@ function removeRow(idx) {
   stockData.splice(idx, 1);
   renderEditTable();
   renderPreview();
+  saveState();
 }
 
 function clearAll() {
@@ -310,6 +376,7 @@ function clearAll() {
   stockData = [];
   renderEditTable();
   renderPreview();
+  saveState();
   showToast('已清空全部标的');
 }
 
@@ -328,6 +395,7 @@ async function lookupRow(idx) {
       stockData[idx] = { ...stockData[idx], ...json };
       renderEditTable();
       renderPreview();
+      saveState();
       showToast(`已匹配: ${json.name} ${json.code}`);
     } else {
       showToast(`未找到匹配的标的: ${name}`);
@@ -343,6 +411,7 @@ async function lookupRow(idx) {
 dateInput.addEventListener('change', () => {
   reportDate = dateInput.value;
   renderPreview();
+  saveState();
 });
 
 // ---------------------------------------------------------------------------
@@ -437,4 +506,11 @@ function showToast(msg) {
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ---------------------------------------------------------------------------
+// Init: restore state on page load (handles browser refresh gracefully)
+// ---------------------------------------------------------------------------
+if (restoreState()) {
+  showToast('已恢复上次的编辑数据（如需重新上传请点击上方上传区域）');
 }
