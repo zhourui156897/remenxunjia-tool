@@ -44,7 +44,8 @@ try:
         _tess_exe = os.path.join(_tess_dir, 'tesseract.exe')
         if os.path.isfile(_tess_exe):
             pytesseract.pytesseract.tesseract_cmd = _tess_exe
-            os.environ['TESSDATA_PREFIX'] = _tess_dir
+            _tessdata = os.path.join(_tess_dir, 'tessdata')
+            os.environ['TESSDATA_PREFIX'] = _tessdata + os.sep
     HAS_TESSERACT = True
 except ImportError:
     HAS_TESSERACT = False
@@ -136,17 +137,9 @@ def ocr_extract_stock_names(image_path: str) -> list[str]:
 
     all_rows: dict[int, list[str]] = {}
 
-    tessdata_dir = None
-    if getattr(sys, 'frozen', False):
-        candidate = os.path.join(os.path.dirname(sys.executable), 'tesseract', 'tessdata')
-        if os.path.isdir(candidate):
-            tessdata_dir = candidate
-
     try:
         for variant in variants:
             ocr_config = '--psm 6'
-            if tessdata_dir:
-                ocr_config += f' --tessdata-dir "{tessdata_dir}"'
             text = pytesseract.image_to_string(
                 variant, lang='chi_sim+eng', config=ocr_config
             )
